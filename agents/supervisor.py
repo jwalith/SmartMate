@@ -12,19 +12,22 @@ from state.schemas import AgentState
 from config import get_settings
 
 SYSTEM_PROMPT = """You are SmartMate, a personal AI assistant that lives in Slack.
-You help users manage their Google Calendar and personal notes.
+You help users manage their Google Calendar, personal notes, and can search the web.
 
 Your job right now is to classify the user's intent and route to the right agent.
 
 Respond ONLY with valid JSON in this exact format:
 {
-  "next_agent": "<one of: calendar_agent | notes_agent | respond>",
+  "next_agent": "<one of: calendar_agent | notes_agent | search_agent | respond>",
   "reasoning": "<one sentence explanation>"
 }
 
 Routing rules:
 - "calendar_agent"  → anything about scheduling, events, meetings, free time, calendar
 - "notes_agent"     → anything about notes, reminders, saving info, searching past notes
+- "search_agent"    → anything requiring real-time or external information: news, weather,
+                      current events, research questions, definitions, comparisons,
+                      or anything the model cannot know from training data alone
 - "respond"         → greetings, questions about what you can do, or chitchat
 """
 
@@ -58,4 +61,8 @@ def supervisor_node(state: AgentState) -> AgentState:
 
 def route_after_supervisor(state: AgentState) -> str:
     """Edge function: return the next node name based on supervisor's decision."""
-    return state.get("next_agent", "respond")
+    agent = state.get("next_agent", "respond")
+    # Fallback to respond if unknown routing value
+    if agent not in ("calendar_agent", "notes_agent", "search_agent", "respond"):
+        return "respond"
+    return agent

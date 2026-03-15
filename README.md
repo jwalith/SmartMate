@@ -254,14 +254,4 @@ Tools exposed:
 
 ---
 
-## Challenges & Solutions
 
-See [`TROUBLESHOOTING.md`](./TROUBLESHOOTING.md) for a detailed log of every technical
-challenge encountered during development and how each was resolved — covering async
-patterns, OAuth 2.0 PKCE, LangGraph state management, and Slack integration quirks.
-
----
-
-## Author
-
-**Jwali** — [github.com/jwalith](https://github.com/jwalith)

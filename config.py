@@ -25,6 +25,14 @@ class Settings(BaseSettings):
     # Notes
     notes_db_path: str = "notes.db"
 
+    # Web Search
+    tavily_api_key: str = ""
+
+    # LangSmith (read automatically by LangChain — just needs to be in env)
+    langchain_tracing_v2: str = "false"
+    langchain_api_key: str = ""
+    langchain_project: str = "SmartMate"
+
 
 @lru_cache
 def get_settings() -> Settings:

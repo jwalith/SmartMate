@@ -15,6 +15,7 @@ from state.schemas import AgentState
 from agents.supervisor import supervisor_node, route_after_supervisor
 from agents.calendar_agent import calendar_agent_node
 from agents.notes_agent import notes_agent_node
+from agents.search_agent import search_agent_node
 from agents.responder import responder_node
 
 # ── Build graph ──────────────────────────────────────────────────────────────
@@ -25,6 +26,7 @@ builder = StateGraph(AgentState)
 builder.add_node("supervisor", supervisor_node)
 builder.add_node("calendar_agent", calendar_agent_node)
 builder.add_node("notes_agent", notes_agent_node)
+builder.add_node("search_agent", search_agent_node)
 builder.add_node("respond", responder_node)
 
 # Edges
@@ -36,12 +38,14 @@ builder.add_conditional_edges(
     {
         "calendar_agent": "calendar_agent",
         "notes_agent": "notes_agent",
+        "search_agent": "search_agent",
         "respond": "respond",
     },
 )
 
 builder.add_edge("calendar_agent", END)
 builder.add_edge("notes_agent", END)
+builder.add_edge("search_agent", END)
 builder.add_edge("respond", END)
 
 # In-memory checkpointer (persists state across turns within the same process).
@@ -84,6 +88,7 @@ async def run_agent(
         "next_agent": None,
         "calendar_result": None,
         "notes_result": None,
+        "search_result": None,
         "final_response": None,
     }
 

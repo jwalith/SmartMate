@@ -1,12 +1,18 @@
 """
 SmartMate — FastAPI entry point
 
+
 Endpoints:
   POST /slack/events          → Slack event webhook (Bolt handler)
   GET  /auth/google/login     → Start Google OAuth flow
   GET  /auth/google/callback  → Google OAuth callback
   GET  /health                → Health check
 """
+
+# Load .env into os.environ FIRST — LangChain reads LANGCHAIN_* vars directly
+# from os.environ, not from pydantic-settings
+from dotenv import load_dotenv
+load_dotenv()
 
 import logging
 from contextlib import asynccontextmanager

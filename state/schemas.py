@@ -16,11 +16,12 @@ class AgentState(TypedDict):
     slack_thread_ts: str | None
 
     # Routing decision made by the supervisor
-    next_agent: Literal["calendar_agent", "notes_agent", "respond", "__end__"] | None
+    next_agent: Literal["calendar_agent", "notes_agent", "search_agent", "respond", "__end__"] | None
 
     # Structured outputs from sub-agents (cleared each turn)
     calendar_result: str | None
     notes_result: str | None
+    search_result: str | None
 
     # Final response to send back to Slack
     final_response: str | None

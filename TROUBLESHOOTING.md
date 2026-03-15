@@ -182,6 +182,131 @@ apps do not allow users to send direct messages to them unless explicitly config
 
 ---
 
+---
+
+## Issue 7 — Web Search Agent: `tool_use_failed` / Wrong Tool Call Format
+
+### Error
+```
+Error code: 400 - {'error': {'message': "Failed to call a function. Please adjust your prompt.",
+'type': 'invalid_request_error', 'code': 'tool_use_failed',
+'failed_generation': '<function=web_search {"query": "New York weather today", "max_results": 5}</function>'}}
+```
+
+### Root Cause
+`llama-3.3-70b-versatile` on Groq generates tool calls in the **Hermes XML format**
+(`<function=name {...}></function>`) when bound with LangChain's `.bind_tools()`.
+Groq's API expects the **OpenAI JSON format** for tool calls and rejects the Hermes format.
+
+Switching to `llama3-groq-70b-8192-tool-use-preview` (Groq's tool-use fine-tuned model)
+did not fix it either — that model was subsequently decommissioned (see Issue 8).
+
+### Fix
+Eliminated LLM tool calling for the search agent entirely. Instead:
+1. **Call Tavily directly** in Python (no LLM involved in the search step)
+2. **Pass the raw results to the LLM** for synthesis into a readable answer
+
+```python
+# agents/search_agent.py
+def search_agent_node(state):
+    results = _search(user_query)          # direct Tavily call — no LLM tool call
+    response = llm.invoke([HumanMessage(   # LLM only summarizes results
+        content=f"Synthesize: {results}"
+    )])
+```
+
+This pattern is actually architecturally cleaner — search is deterministic (Tavily always
+searches), and the LLM's job is reasoning/synthesis, not deciding whether to search.
+
+---
+
+## Issue 8 — Groq Model Decommissioned: `llama3-groq-70b-8192-tool-use-preview`
+
+### Error
+```
+Error code: 400 - {'error': {'message': "The model `llama3-groq-70b-8192-tool-use-preview`
+has been decommissioned and is no longer supported."}}
+```
+
+### Root Cause
+While debugging the tool call format issue (Issue 7), the calendar and notes agents
+were temporarily switched to `llama3-groq-70b-8192-tool-use-preview` — Groq's
+tool-use optimized model. Groq decommissioned this model without deprecation notice,
+breaking the calendar and notes functionality.
+
+### Fix
+Reverted all agents back to `llama-3.3-70b-versatile` which remains active and
+handles tool calling correctly for calendar and notes operations:
+
+```python
+llm = ChatGroq(
+    model="llama-3.3-70b-versatile",   # stable, actively maintained
+    temperature=0,
+    api_key=settings.groq_api_key,
+).bind_tools(TOOLS)
+```
+
+**Lesson:** For production systems, pin model versions and monitor provider
+deprecation announcements. For portfolio projects, prefer widely-supported
+general models over preview/specialized variants.
+
+---
+
+## Issue 9 — LangSmith Traces Not Appearing (Trace Count: 0)
+
+### Symptom
+LangSmith dashboard showed the SmartMate project with 0 traces despite the server
+running and processing Slack messages successfully.
+
+### Root Cause
+LangChain reads tracing configuration (`LANGCHAIN_TRACING_V2`, `LANGCHAIN_API_KEY`,
+`LANGCHAIN_PROJECT`) directly from `os.environ`. Pydantic-settings loads `.env` values
+into the `Settings` class internally but does **not** inject them into `os.environ`.
+
+As a result, LangChain never saw the tracing vars and silently skipped all tracing.
+
+### Fix
+Added `load_dotenv()` at the very top of `main.py`, before any LangChain imports,
+so `.env` values are populated into `os.environ` at process startup:
+
+```python
+# main.py — must be first, before any langchain imports
+from dotenv import load_dotenv
+load_dotenv()
+
+import logging
+from fastapi import FastAPI
+# ... rest of imports
+```
+
+---
+
+## Issue 10 — Tavily API Key Not Found at Runtime
+
+### Error
+```
+SmartMate: Sorry, I couldn't search the web right now: `TAVILY_API_KEY is not set.`
+```
+
+### Root Cause
+The search agent originally read the Tavily key via `os.getenv("TAVILY_API_KEY")`.
+Since `load_dotenv()` had not yet been added (Issue 9), and pydantic-settings doesn't
+set OS environment variables, `os.getenv()` returned `None`.
+
+Additionally, the `get_settings()` function uses `@lru_cache` — once the `Settings`
+object is created, it's cached for the lifetime of the process. Adding a new field
+(`tavily_api_key`) to the `Settings` class requires a full server restart to take
+effect; the auto-reloader reloads Python modules but the cached settings object persists.
+
+### Fix
+1. Added `tavily_api_key` to the `Settings` class in `config.py`
+2. Updated `search_agent.py` to read the key via `get_settings().tavily_api_key`
+   instead of `os.getenv()` — consistent with how all other API keys are handled
+3. Added `load_dotenv()` to `main.py` (see Issue 9) to ensure all vars are in `os.environ`
+4. Full server restart (not auto-reload) required whenever new settings fields are added
+
+---
+
 ## Summary Table
 
 | # | Issue | Category | Fix |
@@ -192,3 +317,7 @@ apps do not allow users to send direct messages to them unless explicitly config
 | 4 | Missing code verifier (PKCE) | OAuth / Security | Persisted Flow instance between login and callback |
 | 5 | redirect_uri_mismatch | OAuth / Config | Separated `PUBLIC_URL` from `OAUTH_REDIRECT_URI` |
 | 6 | Slack DM disabled | Slack Config | Enabled messages tab in App Home settings |
+| 7 | LLM tool call format error | Groq / LangChain | Replaced LLM tool calling with direct Tavily API call |
+| 8 | Groq model decommissioned | LLM Provider | Reverted to `llama-3.3-70b-versatile` |
+| 9 | LangSmith traces not appearing | Observability | Added `load_dotenv()` before LangChain imports |
+| 10 | Tavily API key not found at runtime | Config / Cache | Routed key through `get_settings()` + full restart |
