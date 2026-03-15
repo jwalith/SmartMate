@@ -1,8 +1,8 @@
 # SmartMate — AI-Agent Personal Assistant
 
 > Architected a stateful multi-agent system using **LangGraph**, **FastAPI**, and **MCP**,
-> integrating Google Calendar and note-taking tools via asynchronous event handling
-> to automate complex scheduling workflows over **Slack**.
+> integrating Google Calendar, note-taking, and real-time web search via asynchronous
+> event handling to automate complex workflows over **Slack**.
 
 ![Python](https://img.shields.io/badge/Python-3.11+-3776AB?style=flat&logo=python&logoColor=white)
 ![FastAPI](https://img.shields.io/badge/FastAPI-0.135-009688?style=flat&logo=fastapi&logoColor=white)
@@ -10,20 +10,21 @@
 ![MCP](https://img.shields.io/badge/MCP-1.26-6C3483?style=flat)
 ![Slack](https://img.shields.io/badge/Slack-Bolt-4A154B?style=flat&logo=slack&logoColor=white)
 ![Google Calendar](https://img.shields.io/badge/Google_Calendar-API_v3-4285F4?style=flat&logo=google&logoColor=white)
+![LangSmith](https://img.shields.io/badge/LangSmith-Tracing-1C3C3C?style=flat)
 
 ---
 
 ## Demo
 
-| Slack Bot Live | Event Subscriptions Verified | Google Calendar Connected |
+| Slack Bot — Weather Search | Slack Bot — Calendar | LangSmith Tracing |
 |---|---|---|
-| ![Slack Demo](screenshots/Screenshot%202026-03-14%20232323.png) | ![Slack Events](screenshots/Screenshot%202026-03-14%20232405.png) | ![Google Auth](screenshots/Screenshot%202026-03-14%20232434.png) |
+| ![Web Search](screenshots/Screenshot%202026-03-15%20010137.png) | ![Calendar](screenshots/Screenshot%202026-03-14%20232323.png) | ![LangSmith](screenshots/Screenshot%202026-03-15%20010743.png) |
 
 ---
 
 ## What It Does
 
-SmartMate is a fully functional AI personal assistant that lives in Slack. Send it a natural language message and it autonomously decides what to do — schedule meetings, find free time, or manage your notes — then executes the task end-to-end.
+SmartMate is a fully functional AI personal assistant that lives in Slack. Send it a natural language message and it autonomously decides what to do — schedule meetings, search the web, manage notes — then executes the task end-to-end.
 
 **Example interactions:**
 ```
@@ -35,6 +36,12 @@ SmartMate:  Queries your calendar, computes free slots, returns available window
 
 You:        "Create a team sync on Friday at 2pm"
 SmartMate:  Creates the event and confirms with a calendar link
+
+You:        "What's the weather in New York this week?"
+SmartMate:  Searches the web in real-time and returns current forecast with sources
+
+You:        "What's the latest news in AI today?"
+SmartMate:  Fetches and summarizes live news results via Tavily
 
 You:        "Save a note: project ideas for recommendation engine"
 SmartMate:  Stores it in the notes database with timestamp and tags
@@ -57,31 +64,32 @@ Slack DM / @mention
 └──────────────┬───────────────┘  GET  /auth/google/callback
                │ async invoke
                ▼
-┌──────────────────────────────────────────────────────┐
-│                LangGraph Agent Graph                 │
-│                                                      │
-│   START                                              │
-│     │                                                │
-│     ▼                                                │
-│  ┌──────────────────┐                                │
-│  │  Supervisor Node │  ← GPT-4o class intent         │
-│  │  (intent router) │    via structured JSON output  │
-│  └────────┬─────────┘                                │
-│           │                                          │
-│     ┌─────┴──────┬──────────────┐                   │
-│     ▼            ▼              ▼                    │
-│  [Calendar]   [Notes]       [Responder]              │
-│   Agent        Agent          Node                   │
-│     │            │                                   │
-│  MCP Tool    MCP Tool                                │
-│  Server      Server                                  │
-│     │            │                                   │
-│  Google      SQLite DB                               │
-│  Calendar    (aiosqlite)                             │
-│  API v3                                              │
-│                                                      │
-│  MemorySaver checkpointer — stateful per Slack user  │
-└──────────────────────────────────────────────────────┘
+┌────────────────────────────────────────────────────────────┐
+│                  LangGraph Agent Graph                     │
+│                                                            │
+│   START                                                    │
+│     │                                                      │
+│     ▼                                                      │
+│  ┌──────────────────────┐                                  │
+│  │    Supervisor Node   │  ← classifies intent via         │
+│  │    (intent router)   │    structured JSON LLM output    │
+│  └──────────┬───────────┘                                  │
+│             │                                              │
+│    ┌────────┼──────────┬──────────────┐                   │
+│    ▼        ▼          ▼              ▼                    │
+│ [Calendar] [Notes] [Search]      [Responder]               │
+│  Agent     Agent    Agent          Node                    │
+│    │         │        │                                    │
+│ MCP Tool  MCP Tool  Tavily                                 │
+│ Server    Server    Web Search                             │
+│    │         │        │                                    │
+│ Google    SQLite   Real-time                               │
+│ Calendar  (notes)  Internet                                │
+│ API v3                                                     │
+│                                                            │
+│  MemorySaver checkpointer — stateful per Slack user        │
+│  LangSmith tracing — full observability on every run       │
+└────────────────────────────────────────────────────────────┘
                │
                ▼
      Slack reply (chat.update)
@@ -90,11 +98,13 @@ Slack DM / @mention
 ### How the Multi-Agent Routing Works
 
 1. **Slack** sends a webhook POST to the FastAPI server
-2. The **Supervisor Agent** (LLM with structured JSON output) classifies intent into one of: `calendar_agent`, `notes_agent`, or `respond`
+2. The **Supervisor Agent** (LLM with structured JSON output) classifies intent into one of: `calendar_agent`, `notes_agent`, `search_agent`, or `respond`
 3. LangGraph routes to the appropriate **sub-agent node**
-4. Sub-agents run a **ReAct loop** — reasoning + tool calls — until they have a complete answer
-5. Tools are exposed as **MCP servers** (Model Context Protocol), the emerging industry standard for agent tool interfaces
-6. The final response is posted back to Slack via `chat.update`, replacing a "thinking..." placeholder
+4. **Calendar and Notes agents** run a **ReAct loop** — reasoning + tool calls — until they have a complete answer
+5. **Search agent** calls Tavily directly for real-time web results, then synthesizes the answer with the LLM
+6. Tools are exposed as **MCP servers** (Model Context Protocol), the emerging industry standard for agent tool interfaces
+7. Every run is traced end-to-end via **LangSmith** — latency, token usage, and node execution visible per request
+8. The final response is posted back to Slack via `chat.update`, replacing a "thinking..." placeholder
 
 ---
 
@@ -108,6 +118,8 @@ Slack DM / @mention
 | **MemorySaver checkpointer** | Conversations are stateful per Slack user ID — SmartMate remembers context across messages |
 | **Slack placeholder pattern** | Immediately posts "thinking..." then updates it, avoiding Slack's 3-second timeout |
 | **PKCE OAuth flow** | Implements full OAuth 2.0 PKCE for Google Calendar, persisting flow state between redirect steps |
+| **Direct Tavily + LLM synthesis** | Search agent calls Tavily directly (no LLM tool calling) then synthesizes — avoids LLM function-call format issues and is architecturally cleaner |
+| **LangSmith observability** | Full trace of every agent run — node timings, LLM inputs/outputs, tool results — loaded via `load_dotenv()` before LangChain initializes |
 
 ---
 
@@ -120,6 +132,8 @@ Slack DM / @mention
 | **LangChain** | LLM abstraction, ReAct agent pattern, tool binding |
 | **Llama 3.3 70B (Groq)** | LLM backbone — fast inference via Groq's free API |
 | **MCP (Model Context Protocol)** | Standardized tool server protocol for agent-tool communication |
+| **Tavily** | Real-time web search API designed for LLM agents |
+| **LangSmith** | End-to-end agent observability, tracing, and monitoring |
 | **Slack Bolt** | Event subscription, webhook verification, message posting |
 | **Google Calendar API v3** | Create, read, and query calendar events |
 | **Google OAuth 2.0 + PKCE** | Secure delegated calendar access with token refresh |
@@ -142,11 +156,13 @@ smartmate/
 │   ├── supervisor.py           # Supervisor node — JSON-structured intent classification
 │   ├── calendar_agent.py       # ReAct agent — Google Calendar tool calls
 │   ├── notes_agent.py          # ReAct agent — Notes CRUD tool calls
+│   ├── search_agent.py         # Search agent — Tavily web search + LLM synthesis
 │   └── responder.py            # Direct LLM response for general conversation
 │
 ├── mcp_servers/
 │   ├── calendar_server.py      # MCP server: exposes 4 calendar tools
-│   └── notes_server.py         # MCP server: exposes 4 notes tools
+│   ├── notes_server.py         # MCP server: exposes 4 notes tools
+│   └── search_server.py        # MCP server: exposes web search tools
 │
 ├── tools/
 │   ├── google_calendar.py      # Google Calendar API wrapper (list, create, free slots, delete)
@@ -173,6 +189,8 @@ smartmate/
 - A Slack workspace
 - [ngrok](https://ngrok.com) (for local webhook tunneling)
 - A free [Groq API key](https://console.groq.com) (for the LLM)
+- A free [Tavily API key](https://app.tavily.com) (for web search)
+- A free [LangSmith API key](https://smith.langchain.com) (for tracing)
 
 ### 1. Clone & Install
 
@@ -195,13 +213,17 @@ cp .env.example .env
 Fill in your `.env`:
 
 ```env
-GROQ_API_KEY=gsk_...                         # From console.groq.com (free)
-SLACK_BOT_TOKEN=xoxb-...                     # From api.slack.com/apps → OAuth & Permissions
-SLACK_SIGNING_SECRET=...                     # From api.slack.com/apps → Basic Information
-GOOGLE_CREDENTIALS_FILE=credentials.json    # Downloaded from GCP Console
+GROQ_API_KEY=gsk_...                          # From console.groq.com (free)
+TAVILY_API_KEY=tvly-...                       # From app.tavily.com (free)
+SLACK_BOT_TOKEN=xoxb-...                      # From api.slack.com/apps → OAuth & Permissions
+SLACK_SIGNING_SECRET=...                      # From api.slack.com/apps → Basic Information
+GOOGLE_CREDENTIALS_FILE=credentials.json     # Downloaded from GCP Console
 GOOGLE_TOKEN_FILE=token.json
-PUBLIC_URL=https://your-ngrok-url.ngrok.io  # From ngrok http 8000
+PUBLIC_URL=https://your-ngrok-url.ngrok.io   # From ngrok http 8000
 OAUTH_REDIRECT_URI=http://localhost:8000/auth/google/callback
+LANGCHAIN_TRACING_V2=true                    # Enable LangSmith tracing
+LANGCHAIN_API_KEY=lsv2_...                   # From smith.langchain.com
+LANGCHAIN_PROJECT=SmartMate
 ```
 
 ### 3. Google Cloud Setup (one-time)
@@ -243,6 +265,7 @@ Each MCP server can be run and tested independently:
 ```bash
 python -m mcp_servers.calendar_server
 python -m mcp_servers.notes_server
+python -m mcp_servers.search_server
 ```
 
 Tools exposed:
@@ -251,7 +274,4 @@ Tools exposed:
 |---|---|
 | `calendar_server` | `list_upcoming_events`, `create_event`, `find_free_slots`, `delete_event` |
 | `notes_server` | `create_note`, `search_notes`, `list_notes`, `delete_note` |
-
----
-
-
+| `search_server` | `web_search`, `get_webpage` |
