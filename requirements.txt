@@ -1,0 +1,35 @@
+# Core
+fastapi>=0.115.0
+uvicorn[standard]>=0.32.0
+python-dotenv>=1.0.0
+pydantic>=2.10.0
+pydantic-settings>=2.7.0
+
+# LangGraph + LangChain
+langgraph>=0.2.60
+langchain>=0.3.13
+langchain-groq>=0.2.3
+langchain-core>=0.3.29
+
+# Slack
+slack-bolt>=1.21.0
+slack-sdk>=3.33.0
+
+# Google Calendar
+google-auth>=2.37.0
+google-auth-oauthlib>=1.2.1
+google-auth-httplib2>=0.2.0
+google-api-python-client>=2.157.0
+
+# MCP
+mcp>=1.2.0
+
+# Database (SQLite for notes)
+aiosqlite>=0.20.0
+
+# HTTP
+httpx>=0.28.0
+aiohttp>=3.11.0
+
+# Utilities
+python-multipart>=0.0.20
